@@ -2,6 +2,7 @@ package bot
 
 import (
 	"crypto/tls"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -11,7 +12,12 @@ import (
 	"github.com/sorcix/irc"
 )
 
-func isChannel(loc string) bool {
+func MessageFromChannel(m *irc.Message) bool {
+	if len(m.Params) == 0 {
+		return false
+	}
+
+	loc := m.Params[0]
 	return len(loc) > 0 && (loc[0] == irc.Channel || loc[0] == irc.Distributed)
 }
 
@@ -51,6 +57,53 @@ func (b *Bot) Send(m *irc.Message) {
 	if err != nil {
 		b.err = err
 	}
+}
+
+func prepend(v []interface{}, e interface{}) []interface{} {
+	var vc []interface{}
+
+	vc = append(vc, e)
+	vc = append(vc, v...)
+
+	return vc
+}
+
+func (b *Bot) Reply(m *irc.Message, format string, v ...interface{}) {
+	if len(m.Params) == 0 || len(m.Params[0]) == 0 {
+		log.Println("Invalid IRC event")
+		return
+	}
+
+	// Create the base message
+	out := &irc.Message{
+		Command: "PRIVMSG",
+	}
+
+	// Make sure we send it to the right place
+	if MessageFromChannel(m) {
+		out.Params = append(out.Params, m.Params[0])
+	} else {
+		out.Params = append(out.Params, m.Prefix.Name)
+	}
+
+	// Append the outgoing text
+	out.Params = append(out.Params, fmt.Sprintf(format, v...))
+
+	b.Send(out)
+}
+
+func (b *Bot) MentionReply(m *irc.Message, format string, v ...interface{}) {
+	if len(m.Params) == 0 || len(m.Params[0]) == 0 {
+		log.Println("Invalid IRC event")
+		return
+	}
+
+	if MessageFromChannel(m) {
+		format = "%s: " + format
+		v = prepend(v, m.Prefix.Name)
+	}
+
+	b.Reply(m, format, v...)
 }
 
 func (b *Bot) mainLoop(conn io.ReadWriteCloser) error {
